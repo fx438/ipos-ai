@@ -1,0 +1,941 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>POS AI 研发闭环</title>
+<meta name="description" content="餐饮 POS 系统 AI 研发闭环的交互式演示：口语反馈 → 结构化任务 → 领域 Skill → 知识图谱定位 → 人工审批 → 修改验证 → 人工验收。数据均为虚构。">
+<style>
+:root {
+  --bg: #f5f6f8; --surface: #ffffff; --surface-2: #f0f2f5; --text: #1d2330; --muted: #646d7e;
+  --border: #dde1e7; --accent: #2563eb; --accent-soft: #e6eefc; --ok: #15803d; --ok-soft: #e5f4ea;
+  --warn: #b45309; --warn-soft: #fcf1e1; --bad: #b91c1c; --bad-soft: #fbe7e7; --code: #f3f4f6;
+  --node: #ffffff; --edge: #c3c9d3; --shadow: 0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.08);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #10141b; --surface: #171c25; --surface-2: #1f2530; --text: #e6e9ef; --muted: #98a1b2;
+    --border: #2c3442; --accent: #6b9cff; --accent-soft: #1c2a47; --ok: #4ade80; --ok-soft: #15301f;
+    --warn: #fbbf24; --warn-soft: #3a2c10; --bad: #f87171; --bad-soft: #3b1717; --code: #11161e;
+    --node: #1f2530; --edge: #3a4354; --shadow: none;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #10141b; --surface: #171c25; --surface-2: #1f2530; --text: #e6e9ef; --muted: #98a1b2;
+  --border: #2c3442; --accent: #6b9cff; --accent-soft: #1c2a47; --ok: #4ade80; --ok-soft: #15301f;
+  --warn: #fbbf24; --warn-soft: #3a2c10; --bad: #f87171; --bad-soft: #3b1717; --code: #11161e;
+  --node: #1f2530; --edge: #3a4354; --shadow: none;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); }
+body { font: 14px/1.6 -apple-system, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif; }
+code, pre, .mono { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 12.5px; }
+button { font: inherit; cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: .45; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.wrap { max-width: 1180px; margin: 0 auto; padding: 0 16px; }
+header.top { padding: 28px 0 8px; }
+header.top h1 { font-size: 24px; margin: 0 0 6px; letter-spacing: .2px; }
+header.top p { margin: 0; color: var(--muted); max-width: 760px; }
+.chain { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; color: var(--muted); font-size: 12.5px; }
+.chain span { background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px; }
+
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); }
+.section-title { font-size: 16px; font-weight: 600; margin: 28px 0 10px; }
+
+/* 反馈输入 */
+.intake { padding: 16px; margin-top: 18px; }
+.intake .label { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+.samples { display: flex; flex-wrap: wrap; gap: 8px; }
+.sample { text-align: left; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); border-radius: 8px; padding: 8px 12px; max-width: 100%; }
+.sample small { display: block; color: var(--muted); font-size: 12px; }
+.sample[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.custom { display: flex; gap: 8px; margin-top: 12px; }
+.custom input { flex: 1; min-width: 0; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font: inherit; }
+.match-note { font-size: 12.5px; color: var(--warn); margin-top: 6px; min-height: 1em; }
+
+.btn { border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 8px; padding: 7px 14px; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.ok { background: var(--ok); border-color: var(--ok); color: #fff; }
+.btn.bad { color: var(--bad); border-color: var(--bad); background: transparent; }
+:root[data-theme="dark"] .btn.primary, :root[data-theme="dark"] .btn.ok { color: #0b0f15; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .btn.primary, :root:not([data-theme="light"]) .btn.ok { color: #0b0f15; } }
+
+/* 主布局 */
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; margin-top: 16px; align-items: start; }
+@media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+
+.stepper { display: flex; gap: 4px; padding: 10px; overflow-x: auto; border-bottom: 1px solid var(--border); }
+.stepper button { flex: 1 0 auto; border: 0; background: transparent; color: var(--muted); padding: 6px 8px; border-radius: 6px; font-size: 13px; white-space: nowrap; }
+.stepper button .n { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--border); font-size: 11.5px; margin-right: 5px; }
+.stepper button.done { color: var(--text); }
+.stepper button.done .n { background: var(--ok-soft); border-color: var(--ok); color: var(--ok); }
+.stepper button.current { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.stepper button.current .n { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.panel { padding: 18px; min-height: 380px; }
+.panel h2 { font-size: 17px; margin: 0 0 4px; }
+.panel .sub { color: var(--muted); margin: 0 0 14px; font-size: 13px; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--border); align-items: center; }
+.controls .spacer { flex: 1; }
+.hint { font-size: 12.5px; color: var(--warn); }
+
+.bubble-wrap { background: var(--surface-2); border-radius: 10px; padding: 14px; }
+.bubble-head { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+.bubble { display: inline-block; background: var(--surface); border: 1px solid var(--border); border-radius: 4px 12px 12px 12px; padding: 10px 14px; max-width: 100%; }
+.bubble .who { font-size: 12px; color: var(--muted); }
+pre.code { background: var(--code); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; overflow-x: auto; margin: 12px 0 0; white-space: pre; }
+.tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.tag { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); color: var(--muted); }
+.tag.blue { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+.tag.red { background: var(--bad-soft); color: var(--bad); border-color: transparent; }
+.tag.green { background: var(--ok-soft); color: var(--ok); border-color: transparent; }
+.tag.amber { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
+
+.task-card { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.task-card .tc-head { padding: 10px 14px; background: var(--surface-2); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.task-card .tc-head b { font-size: 15px; margin-right: auto; }
+.kv { display: grid; grid-template-columns: 92px minmax(0, 1fr); border-top: 1px solid var(--border); }
+.kv > div { padding: 8px 14px; }
+.kv > div:first-child { color: var(--muted); font-size: 13px; background: var(--surface-2); }
+.kv ol, .kv ul { margin: 0; padding-left: 18px; }
+.translate { font-size: 13px; color: var(--muted); margin-bottom: 12px; }
+.translate b { color: var(--text); font-weight: 500; }
+
+.rules { width: 100%; border-collapse: collapse; }
+.rules td { border-top: 1px solid var(--border); padding: 8px 10px; vertical-align: top; }
+.rules td:first-child { width: 70px; color: var(--muted); white-space: nowrap; }
+.rules tr.constraint td { background: var(--bad-soft); }
+.rules tr.constraint td:first-child { color: var(--bad); font-weight: 600; }
+
+.graph-box { border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); overflow-x: auto; }
+.graph-box svg { display: block; width: 100%; min-width: 640px; height: auto; }
+.g-col { font-size: 12px; fill: var(--muted); }
+.g-node rect { fill: var(--node); stroke: var(--border); stroke-width: 1; transition: all .35s; }
+.g-node text { font-size: 12px; fill: var(--text); }
+.g-node.hit rect { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.6; }
+.g-node.impact rect { fill: var(--warn-soft); stroke: var(--warn); stroke-dasharray: 4 3; }
+.g-node.root rect { fill: var(--bad-soft); stroke: var(--bad); stroke-width: 1.8; }
+.g-edge { stroke: var(--edge); stroke-width: 1.2; fill: none; transition: all .35s; }
+.g-edge.hit { stroke: var(--accent); stroke-width: 2.2; }
+.legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--muted); margin-top: 8px; }
+.legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -2px; margin-right: 4px; border: 1.5px solid; }
+.finding { margin-top: 12px; border-left: 3px solid var(--bad); background: var(--bad-soft); padding: 10px 12px; border-radius: 0 8px 8px 0; }
+
+.plan-box { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.plan-box .ver { font-size: 12px; color: var(--muted); }
+.files { margin: 8px 0 0; padding-left: 18px; }
+pre.diff { background: var(--code); border: 1px solid var(--border); border-radius: 8px; padding: 10px 0; overflow-x: auto; margin: 12px 0 0; }
+pre.diff span { display: block; padding: 0 12px; white-space: pre; }
+pre.diff .add { background: var(--ok-soft); color: var(--ok); }
+pre.diff .del { background: var(--bad-soft); color: var(--bad); }
+pre.diff .ctx { color: var(--muted); }
+.decision { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.reject-box { margin-top: 12px; padding: 12px; border: 1px dashed var(--bad); border-radius: 8px; }
+.reject-box .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.chip { border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 999px; padding: 3px 10px; font-size: 12.5px; }
+.chip[aria-pressed="true"] { border-color: var(--bad); color: var(--bad); background: var(--bad-soft); }
+.banner { margin-top: 12px; padding: 10px 12px; border-radius: 8px; font-size: 13.5px; }
+.banner.ok { background: var(--ok-soft); color: var(--ok); }
+.banner.bad { background: var(--bad-soft); color: var(--bad); }
+.banner.info { background: var(--accent-soft); color: var(--accent); }
+
+.lanes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 640px) { .lanes { grid-template-columns: minmax(0, 1fr); } }
+.lane { border: 1px solid var(--border); border-radius: 10px; padding: 10px; min-height: 170px; background: var(--surface-2); }
+.lane-head { display: flex; justify-content: space-between; align-items: center; font-weight: 600; font-size: 13px; margin-bottom: 8px; gap: 6px; }
+.lane ul { list-style: none; margin: 0; padding: 0; font-size: 12.5px; }
+.lane li { padding: 3px 0 3px 14px; position: relative; animation: fade .3s; word-break: break-all; }
+.lane li::before { content: ""; position: absolute; left: 2px; top: 10px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.lane li.ok::before { background: var(--ok); }
+.lane li.warn::before { background: var(--warn); }
+@keyframes fade { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+.pill { font-size: 11.5px; padding: 1px 8px; border-radius: 999px; background: var(--surface); border: 1px solid var(--border); color: var(--muted); font-weight: 500; white-space: nowrap; }
+.pill.run { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+.pill.ok { background: var(--ok-soft); color: var(--ok); border-color: transparent; }
+.pill.wait { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
+.pill.bad { background: var(--bad-soft); color: var(--bad); border-color: transparent; }
+table.tests { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; }
+table.tests td { border-top: 1px solid var(--border); padding: 6px 8px; }
+table.tests td:last-child { text-align: right; white-space: nowrap; }
+
+.checklist { list-style: none; padding: 0; margin: 0; }
+.checklist li { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; margin-bottom: 8px; }
+.checklist label { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
+.checklist input { margin-top: 4px; width: 16px; height: 16px; flex: none; }
+.metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+.metric { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+.metric b { display: block; font-size: 20px; }
+.metric span { font-size: 12px; color: var(--muted); }
+
+/* 侧栏 */
+.side { display: grid; gap: 12px; }
+.side .card { padding: 14px; }
+.side h3 { font-size: 13.5px; margin: 0 0 10px; }
+.states { list-style: none; margin: 0; padding: 0; font-size: 12.5px; }
+.states li { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 6px; color: var(--muted); }
+.states li .dot { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--border); flex: none; }
+.states li.past { color: var(--text); }
+.states li.past .dot { background: var(--ok); border-color: var(--ok); }
+.states li.now { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.states li.now .dot { background: var(--accent); border-color: var(--accent); }
+.states li code { margin-left: auto; font-size: 11px; opacity: .8; }
+.state-extra { margin-top: 8px; font-size: 12px; }
+.workers { display: grid; gap: 6px; font-size: 12.5px; }
+.workers > div { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.kvs { font-size: 12.5px; display: grid; gap: 4px; }
+.kvs div { display: flex; justify-content: space-between; gap: 8px; }
+.kvs span:first-child { color: var(--muted); }
+.audit { list-style: none; margin: 0; padding: 0 0 0 12px; border-left: 2px solid var(--border); font-size: 12.5px; max-height: 280px; overflow-y: auto; }
+.audit li { padding: 0 0 8px 10px; position: relative; }
+.audit li::before { content: ""; position: absolute; left: -17px; top: 7px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.audit li.human::before { background: var(--warn); }
+.audit li.bad::before { background: var(--bad); }
+.audit .t { color: var(--muted); font-size: 11.5px; }
+.empty { color: var(--muted); font-size: 12.5px; }
+
+/* 并发演示 */
+.conc { padding: 16px; }
+.conc-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.conc-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 760px) { .conc-grid { grid-template-columns: minmax(0, 1fr); } }
+.tcard { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; background: var(--surface-2); }
+.tcard .row { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.tcard .ttl { font-weight: 600; font-size: 13.5px; }
+.tcard .meta { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.bar { height: 6px; border-radius: 3px; background: var(--border); margin-top: 8px; overflow: hidden; }
+.bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .5s; }
+.conc-bottom { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 10px; margin-top: 10px; }
+@media (max-width: 760px) { .conc-bottom { grid-template-columns: minmax(0, 1fr); } }
+.locks { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font-size: 12.5px; }
+.locks h4, .conc-log h4 { margin: 0 0 8px; font-size: 13px; }
+.locks .lk { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; }
+.conc-log { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+.conc-log ol { margin: 0; padding-left: 20px; font-size: 12.5px; max-height: 210px; overflow-y: auto; }
+.conc-log li { animation: fade .3s; }
+.conc-log li.warn { color: var(--warn); }
+.conc-log li.bad { color: var(--bad); }
+.conc-log li.ok { color: var(--ok); }
+
+footer { color: var(--muted); font-size: 12.5px; padding: 28px 0 36px; }
+.theme-toggle { position: absolute; top: 16px; right: 16px; }
+header.top { position: relative; padding-right: 90px; }
+@media (max-width: 640px) {
+  header.top { padding-right: 0; padding-top: 56px; }
+  .kv { grid-template-columns: minmax(0, 1fr); }
+  .kv > div:first-child { padding-bottom: 2px; }
+  .metrics { grid-template-columns: minmax(0, 1fr); }
+  .panel { padding: 14px; }
+}
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <button class="btn theme-toggle" id="themeBtn" type="button" aria-label="切换深浅色">主题</button>
+    <h1>餐饮 POS 系统 AI 研发闭环演示</h1>
+    <p>门店的口语、粤语反馈进来后，AI 先整理成结构化任务，再结合领域知识和代码知识图谱定位问题；方案要人工审批，修改在独立工作区里完成并自动验证，最后交给人工验收。每一步都有记录、可审计。</p>
+    <div class="chain"><span>接收</span><span>分类</span><span>领域 Skill</span><span>定位</span><span>方案确认</span><span>修改 + 验证</span><span>人工验收</span></div>
+  </header>
+
+  <section class="card intake" aria-label="选择门店反馈">
+    <div class="label">第一步：选一条门店反馈（或者自己输入一句）</div>
+    <div class="samples" id="samples"></div>
+    <form class="custom" id="customForm">
+      <input id="customInput" placeholder="例如：打印机今日又冇反应" aria-label="自定义反馈">
+      <button class="btn" type="submit">用这句演示</button>
+    </form>
+    <div class="match-note" id="matchNote" aria-live="polite"></div>
+  </section>
+
+  <div class="layout">
+    <main class="card" aria-label="流程演示">
+      <nav class="stepper" id="stepper" aria-label="流程步骤"></nav>
+      <section class="panel" id="panel" aria-live="polite"></section>
+      <div class="controls">
+        <button class="btn" id="prevBtn" type="button">上一步</button>
+        <button class="btn primary" id="nextBtn" type="button">下一步</button>
+        <button class="btn" id="autoBtn" type="button">自动播放</button>
+        <span class="hint" id="hint"></span>
+        <span class="spacer"></span>
+        <button class="btn" id="resetBtn" type="button">重新开始</button>
+      </div>
+    </main>
+
+    <aside class="side" aria-label="运行状态">
+      <div class="card">
+        <h3>任务状态机</h3>
+        <ul class="states" id="states"></ul>
+        <div class="state-extra" id="stateExtra"></div>
+      </div>
+      <div class="card">
+        <h3>Runtime Worker</h3>
+        <div class="workers" id="workers"></div>
+      </div>
+      <div class="card">
+        <h3>任务锁 / 工作区</h3>
+        <div class="kvs" id="lockInfo"></div>
+      </div>
+      <div class="card">
+        <h3>审计记录</h3>
+        <ul class="audit" id="audit"></ul>
+      </div>
+    </aside>
+  </div>
+
+  <h2 class="section-title">多任务并行：任务锁与中断恢复</h2>
+  <section class="card conc" aria-label="并发演示">
+    <p class="sub" style="margin:0 0 12px;color:var(--muted);font-size:13px">三个任务同时进来：两个都要改打印服务，一个改会员模块。任务锁保证同一模块同一时间只有一个任务在改，不相关的任务在各自的独立工作区并行；Worker 中途挂掉后，从状态机记录的断点恢复。</p>
+    <div class="conc-actions">
+      <button class="btn primary" id="concBtn" type="button">同时提交三个任务</button>
+      <button class="btn" id="crashBtn" type="button">模拟中断与恢复</button>
+      <button class="btn" id="concReset" type="button">重置</button>
+    </div>
+    <div class="conc-grid" id="concTasks"></div>
+    <div class="conc-bottom">
+      <div class="locks"><h4>模块锁</h4><div id="concLocks"></div></div>
+      <div class="conc-log"><h4>调度日志</h4><ol id="concLog"></ol></div>
+    </div>
+  </section>
+
+  <footer>
+    页面中的门店、人员、模块、文件名和代码片段均为虚构示例，只用来展示设计思路，不对应任何真实系统。
+  </footer>
+</div>
+
+<script>
+(() => {
+'use strict';
+
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const $ = id => document.getElementById(id);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+/* ---------------- 场景数据（均为虚构） ---------------- */
+const SCENARIOS = {
+  print: {
+    label: '打印', keywords: ['打印', '打单', '小票', '纸', '出票', '打唔出', '打印机'],
+    from: '天河示例店 · 店长', time: '09:41',
+    text: '收银机打单打唔出嚟，换咗纸都唔得，系二号机，今朝开始嘅',
+    mandarin: '收银机打不出小票，换了纸也不行，是 2 号机，今天早上开始的。',
+    emotion: '着急',
+    task: {
+      title: '2 号收银机结账后小票无法打印', type: '缺陷', priority: 'P1',
+      background: '堂食结账后要打印小票给顾客，打不出来会导致收银台排队。',
+      steps: ['登录示例店 2 号收银机', '堂食下单并结账', '点击打印小票：界面提示成功，打印机没有输出'],
+      impact: '示例店 2 号终端；使用同型号打印机的其他门店可能也受影响。',
+      modules: ['收银前端 · 打印对话框', '打印服务', '终端配置'],
+      acceptance: ['2 号机结账后 3 秒内出小票', '打印失败时前端明确提示，并且可以重打', '其他终端打印不受影响']
+    },
+    rules: [
+      ['终端', '每台收银终端绑定一台默认打印机，绑定关系在 terminal_printer 表。'],
+      ['门店', '直营店和加盟店使用不同的小票模板。'],
+      ['流程', '结账 → 生成打印任务 → 打印服务下发给终端代理 → 打印机回执。'],
+      ['配置', '打印超时 printer.timeout 是全局配置，默认 2 秒。'],
+      ['约束', '不得改动结账金额、支付相关逻辑。', true]
+    ],
+    graph: {
+      cols: [
+        ['结账页', '打印对话框', '终端设置页'],
+        ['POST /print/jobs', 'GET /terminal/config'],
+        ['PrintJobService', 'TerminalConfigService', 'PrintAgentClient'],
+        ['print_job 表', 'terminal_printer 表', 'printer.timeout']
+      ],
+      edges: [['0-0', '1-0'], ['0-1', '1-0'], ['0-2', '1-1'], ['1-0', '2-0'], ['1-1', '2-1'], ['2-0', '2-2'], ['2-0', '3-0'], ['2-1', '3-1'], ['2-2', '3-2'], ['2-2', '3-1']],
+      path: ['0-1', '1-0', '2-0', '2-2', '3-2'], root: '3-2', impact: ['3-1', '0-0']
+    },
+    finding: '2 号机上周换了新型号打印机，回执要 3～4 秒；超过 printer.timeout（2 秒）后，终端代理丢弃了任务，但 PrintJobService 不看回执就把任务标成了“成功”。',
+    plans: [
+      { summary: '把全局 printer.timeout 从 2 秒调到 8 秒；PrintJobService 按打印机回执更新任务状态；前端在打印失败时提示并提供“重打”。',
+        files: ['config/printer.yml', 'printer-service/PrintJobService.java', 'pos-web/views/checkout/PrintDialog.vue'],
+        diff: [['ctx', '# config/printer.yml'], ['del', 'printer.timeout: 2s'], ['add', 'printer.timeout: 8s'], ['ctx', '// PrintJobService.java'], ['del', 'job.setStatus(SUCCESS);'], ['add', 'job.setStatus(receipt.ok() ? SUCCESS : FAILED);']],
+        risk: '全局超时变长，所有门店打印失败时都要等 8 秒才提示。' },
+      { summary: '不动全局配置：在 terminal_printer 表增加 timeout_ms，默认沿用 2 秒，只把 2 号机设为 8 秒；PrintJobService 按回执更新状态；前端失败提示 + 重打。',
+        files: ['db/migration/V12__terminal_printer_timeout.sql', 'printer-service/PrintJobService.java', 'printer-service/PrintAgentClient.java', 'pos-web/views/checkout/PrintDialog.vue'],
+        diff: [['ctx', '-- V12__terminal_printer_timeout.sql'], ['add', 'ALTER TABLE terminal_printer ADD COLUMN timeout_ms INT DEFAULT 2000;'], ['ctx', '// PrintAgentClient.java'], ['del', 'client.send(job, globalTimeout);'], ['add', 'client.send(job, binding.getTimeoutMs());'], ['ctx', '// PrintJobService.java'], ['del', 'job.setStatus(SUCCESS);'], ['add', 'job.setStatus(receipt.ok() ? SUCCESS : FAILED);']],
+        risk: '只影响配置了 timeout_ms 的终端；回滚时删除该列即可恢复全局超时。' }
+    ],
+    rejectReason: '影响范围太大',
+    lockKey: 'printer-service',
+    tests: [['2 号机结账打印', '通过 · 1.8s 出票'], ['模拟打印机离线：前端提示并可重打', '通过'], ['1 号、3 号机打印回归', '通过'], ['结账金额相关用例（确认未改动）', '通过']]
+  },
+  order: {
+    label: '订单列表', keywords: ['外卖', '堂食', '混', '订单', '睇唔清', '自取'],
+    from: '番禺示例店 · 楼面主管', time: '11:58',
+    text: '外卖单同堂食单混埋一齐睇唔清，繁忙时间成日搞错',
+    mandarin: '外卖单和堂食单混在一起看不清，高峰期经常弄错。',
+    emotion: '抱怨',
+    task: {
+      title: '订单列表无法区分外卖与堂食', type: '需求', priority: 'P2',
+      background: '高峰期外卖、堂食订单混在同一个列表里，出餐顺序容易搞错。',
+      steps: ['打开收银端订单列表', '同时存在堂食单和外卖平台订单', '列表没有渠道标识，也不能按渠道筛选'],
+      impact: '所有开通外卖的门店的订单列表页。',
+      modules: ['订单列表页', '订单查询接口', '渠道字典'],
+      acceptance: ['列表能按堂食 / 外卖 / 自取筛选', '外卖单有明显标识并显示平台来源', '刷新页面后筛选条件保留']
+    },
+    rules: [
+      ['渠道', '订单渠道 channel 取值 DINE_IN / DELIVERY / PICKUP，外卖平台记录在 source_platform。'],
+      ['门店', '未开通外卖的门店不应看到外卖筛选项。'],
+      ['配置', '门店是否开通外卖：store_feature.delivery_enabled。'],
+      ['流程', '订单列表数据来自订单查询接口，按门店和营业日分页。'],
+      ['约束', '不得改动订单状态流转逻辑。', true]
+    ],
+    graph: {
+      cols: [
+        ['订单列表页', '订单详情页', '门店设置页'],
+        ['GET /orders', 'GET /dict/channel'],
+        ['OrderQueryService', 'DictService', 'StoreFeatureService'],
+        ['order.channel', 'order.source_platform', 'store_feature']
+      ],
+      edges: [['0-0', '1-0'], ['0-1', '1-0'], ['0-0', '1-1'], ['0-2', '1-1'], ['1-0', '2-0'], ['1-1', '2-1'], ['2-0', '3-0'], ['2-0', '3-1'], ['2-0', '2-2'], ['2-2', '3-2']],
+      path: ['0-0', '1-0', '2-0', '3-0'], root: '1-0', impact: ['0-1', '3-1']
+    },
+    finding: '订单表里已经有 channel 和 source_platform 字段，但 GET /orders 没有开放渠道筛选参数，列表页也没有展示渠道。这是功能缺口，不是数据问题。',
+    plans: [
+      { summary: 'GET /orders 增加 channel 筛选参数；订单列表页增加渠道标签和筛选下拉。',
+        files: ['order-service/OrderQueryService.java', 'order-service/OrderController.java', 'pos-web/views/orders/OrderList.vue'],
+        diff: [['ctx', '// OrderController.java'], ['del', 'list(storeId, bizDate, page)'], ['add', 'list(storeId, bizDate, channel, page)'], ['ctx', '<!-- OrderList.vue -->'], ['add', '<ChannelFilter v-model="channel" />'], ['add', '<ChannelTag :channel="row.channel" :platform="row.sourcePlatform" />']],
+        risk: '未开通外卖的门店也会看到外卖筛选，容易误解。' },
+      { summary: '在上一版基础上，按 store_feature.delivery_enabled 决定是否显示外卖筛选；channel 参数可选，旧版收银端不传时行为不变；筛选条件存到本地。',
+        files: ['order-service/OrderQueryService.java', 'order-service/OrderController.java', 'store-service/StoreFeatureService.java', 'pos-web/views/orders/OrderList.vue'],
+        diff: [['ctx', '// OrderController.java'], ['del', 'list(storeId, bizDate, page)'], ['add', 'list(storeId, bizDate, @RequestParam(required = false) channel, page)'], ['ctx', '<!-- OrderList.vue -->'], ['add', '<ChannelFilter v-if="features.deliveryEnabled" v-model="channel" />'], ['add', '<ChannelTag :channel="row.channel" :platform="row.sourcePlatform" />']],
+        risk: '接口新增可选参数，向后兼容；回滚只需下线前端筛选组件。' }
+    ],
+    rejectReason: '需要兼容旧版收银端',
+    lockKey: 'order-service',
+    tests: [['按外卖筛选只返回 DELIVERY 订单', '通过'], ['不传 channel 时结果与改动前一致', '通过'], ['未开通外卖的门店不显示外卖筛选', '通过'], ['订单状态流转用例（确认未改动）', '通过']]
+  },
+  member: {
+    label: '会员积分', keywords: ['会员', '积分', '冇加', '分数', '储值'],
+    from: '海珠示例店 · 收银员', time: '19:12',
+    text: '会员埋单之后积分冇加到，个客好嬲，话上个礼拜都系咁',
+    mandarin: '会员结账后积分没有加上，客人很生气，说上周也是这样。',
+    emotion: '投诉',
+    task: {
+      title: '会员结账后积分未到账', type: '缺陷', priority: 'P1',
+      background: '会员投诉结账后积分没到账，影响会员体验和复购。',
+      steps: ['会员用“会员卡余额 + 微信”组合支付结账', '订单显示已完成', '会员积分没有增加，积分流水里没有记录'],
+      impact: '使用组合支付的会员订单；单一支付方式正常。',
+      modules: ['支付回调', '订单完成服务', '积分服务'],
+      acceptance: ['组合支付订单积分正确到账', '补发最近 7 天漏发的积分，并留下记录', '重复回调不会重复加积分']
+    },
+    rules: [
+      ['会员', '积分 = 实付金额（不含优惠券）× 门店积分倍率 store.point_rate。'],
+      ['流程', '支付成功回调 → 订单完成 → 发出积分事件 → 积分服务入账。'],
+      ['支付', '组合支付每种支付方式各回调一次。'],
+      ['约束', '积分发放必须幂等，以 order_no 去重；不得直接改会员余额。', true]
+    ],
+    graph: {
+      cols: [
+        ['结账页', '会员详情页'],
+        ['POST /pay/callback', 'POST /member/points'],
+        ['PaymentCallbackHandler', 'OrderCompleteService', 'PointService'],
+        ['order_payment 表', 'point_log 表', 'store.point_rate']
+      ],
+      edges: [['0-0', '1-0'], ['0-1', '1-1'], ['1-0', '2-0'], ['1-1', '2-2'], ['2-0', '2-1'], ['2-1', '2-2'], ['2-0', '3-0'], ['2-2', '3-1'], ['2-2', '3-2']],
+      path: ['1-0', '2-0', '2-1', '2-2', '3-1'], root: '2-1', impact: ['0-1', '3-0']
+    },
+    finding: '组合支付会收到两次回调。第一次回调时订单还没完成，OrderCompleteService 跳过了积分事件；第二次回调把订单置为完成，但积分事件不会再发，也没有重试。',
+    plans: [
+      { summary: '在第二次回调把订单置为完成时，补发一次积分事件。',
+        files: ['payment-service/PaymentCallbackHandler.java', 'order-service/OrderCompleteService.java'],
+        diff: [['ctx', '// OrderCompleteService.java'], ['ctx', 'if (order.allPaid()) {'], ['ctx', '    order.complete();'], ['add', '    if (isSecondCallback) publishPointEvent(order);'], ['ctx', '}']],
+        risk: '依赖回调次数判断，回调乱序或重复时会漏发或重复发；没有处理历史漏发。' },
+      { summary: '积分事件改为“订单完成”时统一发出，PointService 以 order_no 做幂等；另写补发脚本，只处理最近 7 天，先 dry-run 输出清单，人工确认后再执行。',
+        files: ['order-service/OrderCompleteService.java', 'member-service/PointService.java', 'scripts/reissue_points_7d.sql'],
+        diff: [['ctx', '// OrderCompleteService.java'], ['del', 'if (isFirstCallback) publishPointEvent(order);'], ['add', 'order.onCompleted(() -> publishPointEvent(order));'], ['ctx', '// PointService.java'], ['add', 'if (pointLogRepo.existsByOrderNo(e.orderNo())) return; // 幂等'], ['ctx', '-- reissue_points_7d.sql（默认 dry-run）']],
+        risk: '幂等后重复回调不会重复入账；补发脚本先出清单，人工确认后执行。' }
+    ],
+    rejectReason: '缺少历史数据补偿',
+    lockKey: 'member-service',
+    tests: [['组合支付订单积分到账', '通过'], ['同一回调重复推送 3 次只入账一次', '通过'], ['补发脚本 dry-run：命中 37 笔，与对账一致', '通过'], ['会员余额相关用例（确认未改动）', '通过']]
+  }
+};
+
+const STEPS = ['接收', '分类', '领域 Skill', '定位', '方案确认', '修改 + 验证', '人工验收'];
+const STATES = [
+  ['RECEIVED', '已接收'], ['CLASSIFIED', '已分类'], ['CONTEXT_READY', '已加载领域知识'], ['LOCATED', '已定位'],
+  ['PENDING_APPROVAL', '待审批'], ['MODIFYING', '修改中'], ['VERIFYING', '验证中'], ['PENDING_ACCEPTANCE', '待验收'], ['DONE', '已完成']
+];
+
+/* ---------------- 状态 ---------------- */
+let S;
+function freshState(key) {
+  return {
+    key, view: 1, max: 1, state: 'RECEIVED', rejected: false, decision: null, rejectPick: null,
+    step6: 'idle', lanes: { orch: [], exec: [], verify: [] }, laneStatus: { orch: '空闲', exec: '空闲', verify: '空闲' },
+    accepted: false, checks: [], audit: [], clock: 0, auto: false, run: 0, lock: null, workspace: null, human: 0
+  };
+}
+const sc = () => SCENARIOS[S.key];
+const planIdx = () => (S.rejected ? 1 : 0);
+
+function stamp() {
+  const base = sc().time.split(':').map(Number);
+  const m = base[0] * 60 + base[1] + S.clock;
+  return String(Math.floor(m / 60) % 24).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+}
+function audit(actor, text, cls) {
+  S.audit.push({ t: stamp(), actor, text, cls: cls || '' });
+  S.clock += 1 + (S.audit.length % 3);
+  renderSide();
+}
+function setState(st) { S.state = st; renderSide(); }
+
+/* ---------------- 样例与输入 ---------------- */
+function renderSamples() {
+  $('samples').innerHTML = Object.entries(SCENARIOS).map(([k, v]) =>
+    `<button class="sample" type="button" data-key="${k}" aria-pressed="${S && S.key === k}">${esc(v.text)}<small>${esc(v.from)} · ${esc(v.label)}</small></button>`
+  ).join('');
+}
+$('samples').addEventListener('click', e => {
+  const b = e.target.closest('.sample'); if (!b) return;
+  $('matchNote').textContent = '';
+  start(b.dataset.key);
+});
+$('customForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const txt = $('customInput').value.trim(); if (!txt) return;
+  let best = null, score = 0;
+  for (const [k, v] of Object.entries(SCENARIOS)) {
+    const s = v.keywords.filter(w => txt.includes(w)).length;
+    if (s > score) { score = s; best = k; }
+  }
+  if (!best) { best = 'print'; $('matchNote').textContent = '这是离线演示，没有接大模型：没命中关键词，先用“打印”样例走一遍流程。'; }
+  else { $('matchNote').textContent = `这是离线演示，没有接大模型：按关键词匹配到“${SCENARIOS[best].label}”样例。`; }
+  start(best, txt);
+});
+
+function start(key, customText) {
+  const prevRun = S ? S.run : 0;
+  S = freshState(key);
+  S.run = prevRun + 1;
+  S.customText = customText || null;
+  renderSamples();
+  audit('企业微信收件箱 MCP', '拉取到门店新反馈');
+  renderAll();
+}
+
+/* ---------------- 主面板 ---------------- */
+function renderStepper() {
+  $('stepper').innerHTML = STEPS.map((name, i) => {
+    const n = i + 1;
+    const cls = n === S.view ? 'current' : (n < S.max || (n === 7 && S.accepted) ? 'done' : '');
+    const dis = n > S.max ? 'disabled' : '';
+    return `<button type="button" class="${cls}" data-n="${n}" ${dis} aria-current="${n === S.view ? 'step' : 'false'}"><span class="n">${n}</span>${esc(name)}</button>`;
+  }).join('');
+}
+$('stepper').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b || b.disabled) return;
+  S.view = Number(b.dataset.n); renderAll();
+});
+
+function panelHTML(n) {
+  const d = sc();
+  const p = d.plans[planIdx()];
+  switch (n) {
+    case 1: return `
+      <h2>接收：从企业微信收件箱拿到反馈</h2>
+      <p class="sub">门店员工直接在企业微信里发消息，不用填表。MCP 工具定时拉取未处理消息。</p>
+      <div class="bubble-wrap">
+        <div class="bubble-head">企业微信 · 门店反馈群 · ${esc(d.time)}</div>
+        <div class="bubble"><div class="who">${esc(d.from)}</div>${esc(S.customText || d.text)}</div>
+      </div>
+      <pre class="code">→ inbox.get_pending_messages(limit=20)
+← { "msg_id": "m_${esc(d.time.replace(':', ''))}07", "from": "${esc(d.from)}",
+    "text": "${esc(S.customText || d.text)}", "attachments": [] }</pre>
+      <div class="tags"><span class="tag blue">语言：粤语口语</span><span class="tag amber">情绪：${esc(d.emotion)}</span><span class="tag">待结构化</span></div>`;
+    case 2: return `
+      <h2>分类：口语反馈 → 结构化任务</h2>
+      <p class="sub">大模型按固定 Schema 输出，缺失字段会追问门店，而不是让开发猜。</p>
+      <div class="translate">转写：<b>${esc(d.mandarin)}</b></div>
+      <div class="task-card">
+        <div class="tc-head"><b>${esc(d.task.title)}</b><span class="tag ${d.task.type === '缺陷' ? 'red' : 'blue'}">${esc(d.task.type)}</span><span class="tag amber">${esc(d.task.priority)}</span></div>
+        <div class="kv"><div>业务背景</div><div>${esc(d.task.background)}</div></div>
+        <div class="kv"><div>复现步骤</div><div><ol>${d.task.steps.map(s => `<li>${esc(s)}</li>`).join('')}</ol></div></div>
+        <div class="kv"><div>影响范围</div><div>${esc(d.task.impact)}</div></div>
+        <div class="kv"><div>候选模块</div><div>${d.task.modules.map(m => `<span class="tag">${esc(m)}</span>`).join(' ')}</div></div>
+        <div class="kv"><div>验收标准</div><div><ul>${d.task.acceptance.map(s => `<li>${esc(s)}</li>`).join('')}</ul></div></div>
+      </div>`;
+    case 3: return `
+      <h2>领域 Skill：让 AI 先懂餐饮业务</h2>
+      <p class="sub">按候选模块加载 <code>pos-domain</code> Skill，把门店、终端、配置、业务流程的规则放进上下文。红色是硬约束，后面的方案和修改都要遵守。</p>
+      <table class="rules"><tbody>${d.rules.map(r => `<tr class="${r[2] ? 'constraint' : ''}"><td>${esc(r[0])}</td><td>${esc(r[1])}</td></tr>`).join('')}</tbody></table>
+      <div class="tags"><span class="tag blue">Skill: pos-domain</span><span class="tag">命中 ${d.rules.length} 条规则</span><span class="tag red">硬约束 ${d.rules.filter(r => r[2]).length} 条</span></div>`;
+    case 4: return `
+      <h2>定位：查代码知识图谱，而不是全仓库搜索</h2>
+      <p class="sub">图谱把前端页面、接口、服务、数据表字段和配置项连起来。AI 改代码前先沿调用链找根因，并列出受影响的节点。</p>
+      <div class="graph-box">${graphSVG(d.graph)}</div>
+      <div class="legend"><span><i style="border-color:var(--accent);background:var(--accent-soft)"></i>调用链</span><span><i style="border-color:var(--bad);background:var(--bad-soft)"></i>根因</span><span><i style="border-color:var(--warn);background:var(--warn-soft);border-style:dashed"></i>受影响</span></div>
+      <div class="finding"><b>定位结论：</b>${esc(d.finding)}</div>`;
+    case 5: return step5HTML(d, p);
+    case 6: return step6HTML(d);
+    case 7: return step7HTML(d, p);
+  }
+}
+
+function step5HTML(d, p) {
+  const v = planIdx() + 1;
+  let decisionHTML = '';
+  if (S.decision === 'approved') {
+    decisionHTML = `<div class="banner ok">开发负责人已批准方案 v${v}，进入修改。</div>`;
+  } else if (S.decision === 'rejecting') {
+    decisionHTML = `<div class="reject-box"><b>驳回原因</b>（会写进审计记录，并作为 AI 重出方案的输入）
+      <div class="chips">${['影响范围太大', '需要兼容旧版收银端', '缺少历史数据补偿', '缺少回滚方案'].map(r =>
+        `<button type="button" class="chip" data-reason="${esc(r)}" aria-pressed="${S.rejectPick === r}">${esc(r)}</button>`).join('')}</div>
+      <button class="btn bad" type="button" id="confirmReject" ${S.rejectPick ? '' : 'disabled'}>确认驳回</button>
+      <button class="btn" type="button" id="cancelReject">取消</button></div>`;
+  } else {
+    decisionHTML = `<div class="decision"><b>你是开发负责人：</b>
+      <button class="btn ok" type="button" id="approveBtn">批准</button>
+      ${S.rejected ? '' : '<button class="btn bad" type="button" id="rejectBtn">驳回</button>'}
+      <span class="hint">${S.rejected ? '方案已按驳回意见修订，请再次审批。' : '试试先驳回一次，看 AI 如何按意见修订方案。'}</span></div>`;
+  }
+  return `
+    <h2>方案确认：AI 出方案，人来拍板</h2>
+    <p class="sub">AI 不能直接动代码。方案要列出改动文件、关键 diff 和风险，经人工批准后才进入修改。</p>
+    ${S.rejected ? `<div class="banner bad" style="margin:0 0 12px">方案 v1 已被驳回：${esc(S.rejectPick || d.rejectReason)}。下面是按意见修订后的 v2。</div>` : ''}
+    <div class="plan-box">
+      <div class="ver">方案 v${v}</div>
+      <div>${esc(p.summary)}</div>
+      <div style="margin-top:8px;font-size:13px;color:var(--muted)">改动文件（${p.files.length}）</div>
+      <ul class="files mono">${p.files.map(f => `<li>${esc(f)}</li>`).join('')}</ul>
+      <pre class="diff">${p.diff.map(([t, l]) => `<span class="${t}">${t === 'add' ? '+ ' : t === 'del' ? '- ' : '  '}${esc(l)}</span>`).join('')}</pre>
+      <div class="banner ${S.rejected ? 'info' : 'bad'}" style="margin-top:10px"><b>风险：</b>${esc(p.risk)}</div>
+    </div>
+    ${decisionHTML}`;
+}
+
+function step6HTML(d) {
+  const lane = (k, name) => {
+    const st = S.laneStatus[k];
+    const cls = st === '运行中' ? 'run' : st === '完成' ? 'ok' : '';
+    return `<div class="lane"><div class="lane-head"><span>${name}</span><span class="pill ${cls}" id="ls-${k}">${esc(st)}</span></div>
+      <ul id="lane-${k}">${S.lanes[k].map(x => `<li class="${x.c || ''}">${esc(x.t)}</li>`).join('')}</ul></div>`;
+  };
+  return `
+    <h2>修改 + 验证：三个 Runtime Worker 分工</h2>
+    <p class="sub">编排 Worker 拿任务锁、开独立工作区；执行 Worker 只按已批准的方案改；验证 Worker 跑用例并检查硬约束。每一步写入状态机，中断后可以恢复。</p>
+    <div class="lanes">${lane('orch', '任务编排')}${lane('exec', '智能执行')}${lane('verify', '工程验证')}</div>
+    <div id="testsBox">${S.step6 === 'done' ? testsHTML(d) : ''}</div>`;
+}
+function testsHTML(d) {
+  return `<table class="tests"><tbody>${d.tests.map(t => `<tr><td>${esc(t[0])}</td><td><span class="pill ok">${esc(t[1])}</span></td></tr>`).join('')}</tbody></table>
+    <div class="banner ok">验证通过，硬约束检查通过，已生成验收单。</div>`;
+}
+
+function step7HTML(d, p) {
+  const items = d.task.acceptance;
+  if (S.accepted) {
+    return `
+      <h2>人工验收：完成</h2>
+      <div class="banner ok" style="margin-top:0">门店店长已验收，任务关闭，任务锁已释放，工作区已归档。</div>
+      <div class="metrics">
+        <div class="metric"><b>${S.clock} 分钟</b><span>从收到反馈到验收（演示时间）</span></div>
+        <div class="metric"><b>${S.human} 次</b><span>人工介入（审批 / 驳回 / 验收）</span></div>
+        <div class="metric"><b>${p.files.length} 个</b><span>改动文件，全部在已批准方案内</span></div>
+      </div>
+      <p class="sub" style="margin-top:14px">右侧“审计记录”是这条任务的完整流水：谁、什么时候、做了什么、结论是什么。</p>`;
+  }
+  return `
+    <h2>人工验收：对照验收标准逐条确认</h2>
+    <p class="sub">验收标准是第 2 步就定好的，验证 Worker 已附上证据。最后一步必须由人确认。</p>
+    <ul class="checklist">${items.map((t, i) => `<li><label><input type="checkbox" data-i="${i}" ${S.checks[i] ? 'checked' : ''}><span>${esc(t)}<br><small style="color:var(--muted)">证据：${esc(d.tests[Math.min(i, d.tests.length - 1)][0])} · 通过</small></span></label></li>`).join('')}</ul>
+    <button class="btn ok" type="button" id="acceptBtn" ${items.every((_, i) => S.checks[i]) ? '' : 'disabled'}>确认验收</button>`;
+}
+
+function graphSVG(g) {
+  const W = 760, colX = [20, 205, 390, 575], nw = 165, nh = 34;
+  const titles = ['前端页面', '接口', '服务', '数据 / 配置'];
+  const rows = Math.max(...g.cols.map(c => c.length));
+  const H = 40 + rows * 58 + 10;
+  const pos = {};
+  g.cols.forEach((col, ci) => {
+    const offset = (rows - col.length) * 29;
+    col.forEach((name, ri) => { pos[ci + '-' + ri] = { x: colX[ci], y: 40 + offset + ri * 58, name }; });
+  });
+  const pathEdges = new Set();
+  for (let i = 0; i < g.path.length - 1; i++) pathEdges.add(g.path[i] + '>' + g.path[i + 1]);
+  const edges = g.edges.map(([a, b], i) => {
+    const A = pos[a], B = pos[b];
+    let d;
+    if (A.x === B.x) {
+      d = `M${A.x + nw / 2},${A.y + nh} L${B.x + nw / 2},${B.y}`;
+    } else {
+      const x1 = A.x + nw, y1 = A.y + nh / 2, x2 = B.x, y2 = B.y + nh / 2, mx = (x1 + x2) / 2;
+      d = `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`;
+    }
+    const hit = pathEdges.has(a + '>' + b);
+    return `<path class="g-edge" data-hit="${hit ? g.path.indexOf(a) : -1}" d="${d}" marker-end="url(#arr)"/>`;
+  }).join('');
+  const nodes = Object.entries(pos).map(([id, p]) =>
+    `<g class="g-node" data-id="${id}"><rect x="${p.x}" y="${p.y}" width="${nw}" height="${nh}" rx="7"/><text x="${p.x + nw / 2}" y="${p.y + nh / 2 + 4}" text-anchor="middle">${esc(p.name)}</text></g>`
+  ).join('');
+  const heads = titles.map((t, i) => `<text class="g-col" x="${colX[i] + nw / 2}" y="22" text-anchor="middle">${t}</text>`).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="代码知识图谱：调用链 ${g.path.map(id => pos[id].name).join(' → ')}">
+    <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--edge)"/></marker></defs>
+    ${heads}${edges}${nodes}</svg>`;
+}
+async function animateGraph(run) {
+  const g = sc().graph;
+  const box = document.querySelector('.graph-box'); if (!box) return;
+  const reveal = (i) => {
+    const id = g.path[i];
+    box.querySelector(`.g-node[data-id="${id}"]`)?.classList.add('hit');
+    box.querySelectorAll(`.g-edge[data-hit="${i - 1}"]`).forEach(e => e.classList.add('hit'));
+  };
+  const finish = () => {
+    g.impact.forEach(id => box.querySelector(`.g-node[data-id="${id}"]`)?.classList.add('impact'));
+    box.querySelector(`.g-node[data-id="${g.root}"]`)?.classList.add('root');
+  };
+  if (S.max > 4 || S.graphShown) { g.path.forEach((_, i) => reveal(i)); finish(); return; }
+  for (let i = 0; i < g.path.length; i++) {
+    reveal(i); await sleep(380);
+    if (run !== S.run || !document.body.contains(box)) return;
+  }
+  finish();
+  S.graphShown = true;
+}
+
+/* ---------------- 第 6 步动画 ---------------- */
+async function runStep6() {
+  if (S.step6 !== 'idle') return;
+  const run = S.run, d = sc(), p = d.plans[planIdx()];
+  S.step6 = 'running';
+  const ws = `ws/task-${d.time.replace(':', '')}`;
+  const push = async (k, t, c, wait = 520) => {
+    if (run !== S.run) throw new Error('stale');
+    S.lanes[k].push({ t, c });
+    const ul = $('lane-' + k);
+    if (ul && S.view === 6) { const li = document.createElement('li'); li.textContent = t; if (c) li.className = c; ul.appendChild(li); }
+    await sleep(wait);
+  };
+  const status = (k, st) => {
+    S.laneStatus[k] = st;
+    const el = $('ls-' + k);
+    if (el && S.view === 6) { el.textContent = st; el.className = 'pill ' + (st === '运行中' ? 'run' : st === '完成' ? 'ok' : ''); }
+    renderSide();
+  };
+  updateControls();
+  try {
+    setState('MODIFYING');
+    status('orch', '运行中');
+    await push('orch', `申请任务锁 lock:${d.lockKey}`);
+    S.lock = d.lockKey; renderSide();
+    await push('orch', '加锁成功', 'ok');
+    await push('orch', `创建独立工作区 ${ws}`);
+    S.workspace = ws; renderSide();
+    await push('orch', '派发给执行 Worker');
+    audit('编排 Worker', `获得任务锁 ${d.lockKey}，创建工作区`);
+    status('orch', '等待'); status('exec', '运行中');
+    await push('exec', `载入已批准方案 v${planIdx() + 1}`);
+    for (const f of p.files) await push('exec', `修改 ${f.split('/').pop()}`, '', 420);
+    await push('exec', '改动范围与方案一致', 'ok');
+    audit('执行 Worker', `按方案 v${planIdx() + 1} 修改 ${p.files.length} 个文件`);
+    status('exec', '完成'); setState('VERIFYING'); status('verify', '运行中');
+    await push('verify', '编译 / 静态检查');
+    for (const t of d.tests) await push('verify', t[0], 'ok', 420);
+    await push('verify', '硬约束检查：未触碰受保护逻辑', 'ok');
+    audit('验证 Worker', `${d.tests.length} 个用例通过，硬约束检查通过`);
+    status('verify', '完成'); status('orch', '运行中');
+    await push('orch', '生成验收单，通知门店', '', 300);
+    status('orch', '完成');
+    S.step6 = 'done';
+    setState('PENDING_ACCEPTANCE');
+    S.max = Math.max(S.max, 7);
+    const tb = $('testsBox'); if (tb && S.view === 6) tb.innerHTML = testsHTML(d);
+    renderStepper(); updateControls();
+    if (S.auto) { await sleep(1200); if (run === S.run && S.auto) go(7); }
+  } catch (e) { /* 演示被重置 */ }
+}
+
+/* ---------------- 渲染与控制 ---------------- */
+function renderPanel() {
+  $('panel').innerHTML = panelHTML(S.view);
+  if (S.view === 4) animateGraph(S.run);
+  if (S.view === 6 && S.step6 === 'idle' && S.decision === 'approved') runStep6();
+}
+function renderSide() {
+  const idx = STATES.findIndex(s => s[0] === S.state);
+  $('states').innerHTML = STATES.map(([code, name], i) =>
+    `<li class="${i < idx || (S.state === 'DONE' && i === idx) ? 'past' : i === idx ? 'now' : ''}"><span class="dot"></span>${esc(name)}<code>${code}</code></li>`).join('');
+  $('stateExtra').innerHTML = S.rejected ? '<span class="tag red">曾驳回 1 次：PENDING_APPROVAL → LOCATED</span>' : '';
+  const w = (name, k) => {
+    const st = S.laneStatus[k];
+    return `<div><span>${name}</span><span class="pill ${st === '运行中' ? 'run' : st === '完成' ? 'ok' : st === '等待' ? 'wait' : ''}">${esc(st)}</span></div>`;
+  };
+  $('workers').innerHTML = w('任务编排 Worker', 'orch') + w('智能执行 Worker', 'exec') + w('工程验证 Worker', 'verify');
+  $('lockInfo').innerHTML = `<div><span>任务锁</span><span class="mono">${S.lock ? esc('lock:' + S.lock) : (S.accepted ? '已释放' : '未持有')}</span></div>
+    <div><span>工作区</span><span class="mono">${S.workspace ? esc(S.workspace) + (S.accepted ? '（已归档）' : '') : '—'}</span></div>`;
+  $('audit').innerHTML = S.audit.length ? S.audit.slice().reverse().map(a =>
+    `<li class="${a.cls}"><div class="t">${esc(a.t)} · ${esc(a.actor)}</div>${esc(a.text)}</li>`).join('') : '<li class="empty">暂无记录</li>';
+}
+function updateControls() {
+  $('prevBtn').disabled = S.view <= 1;
+  let nextOk = S.view < S.max;
+  let hint = '';
+  if (S.view === S.max) {
+    if (S.view <= 4) nextOk = true;
+    else if (S.view === 5) { nextOk = S.decision === 'approved'; if (!nextOk) hint = '需要人工审批后才能继续'; }
+    else if (S.view === 6) { nextOk = S.step6 === 'done'; if (!nextOk) hint = 'Worker 执行中…'; }
+    else if (S.view === 7) { nextOk = false; if (!S.accepted) hint = '最后一步需要人工勾选验收'; }
+  }
+  $('nextBtn').disabled = !nextOk;
+  $('hint').textContent = hint;
+  $('autoBtn').textContent = S.auto ? '暂停' : '自动播放';
+  $('autoBtn').disabled = S.accepted;
+}
+function renderAll() { renderStepper(); renderPanel(); renderSide(); updateControls(); }
+
+const ENTER = {
+  2: () => { setState('CLASSIFIED'); audit('分类 Agent', `生成结构化任务：${sc().task.title}`); },
+  3: () => { setState('CONTEXT_READY'); audit('分类 Agent', '加载领域 Skill pos-domain'); },
+  4: () => { setState('LOCATED'); audit('定位 Agent', '查询代码知识图谱，定位根因'); },
+  5: () => { setState('PENDING_APPROVAL'); audit('方案 Agent', `提交方案 v${planIdx() + 1}，等待审批`); },
+  6: () => {},
+  7: () => {}
+};
+function go(n) {
+  if (n > S.max) { S.max = n; ENTER[n] && ENTER[n](); }
+  S.view = n;
+  renderAll();
+  if (S.auto) scheduleAuto();
+}
+$('nextBtn').addEventListener('click', () => go(S.view + 1));
+$('prevBtn').addEventListener('click', () => { S.view = Math.max(1, S.view - 1); renderAll(); });
+$('resetBtn').addEventListener('click', () => start(S.key));
+$('autoBtn').addEventListener('click', () => { S.auto = !S.auto; updateControls(); if (S.auto) scheduleAuto(); });
+
+let autoTimer = null;
+function scheduleAuto() {
+  clearTimeout(autoTimer);
+  const run = S.run;
+  autoTimer = setTimeout(() => {
+    if (run !== S.run || !S.auto) return;
+    if (S.view < S.max) { go(S.view + 1); return; }
+    if (S.view <= 4) go(S.view + 1);
+    else if (S.view === 5 && S.decision === 'approved') go(6);
+    else if (S.view === 5) { $('hint').textContent = '自动播放已暂停：等待你审批'; }
+    else if (S.view === 7) { S.auto = false; updateControls(); }
+  }, S.view === 4 ? 3200 : 2400);
+}
+
+$('panel').addEventListener('click', e => {
+  const t = e.target;
+  if (t.id === 'approveBtn') {
+    S.decision = 'approved'; S.human++;
+    audit('开发负责人（人工）', `批准方案 v${planIdx() + 1}`, 'human');
+    renderAll();
+    if (S.auto) scheduleAuto();
+  } else if (t.id === 'rejectBtn') {
+    S.decision = 'rejecting'; S.rejectPick = sc().rejectReason; renderPanel();
+  } else if (t.closest('.chip')) {
+    S.rejectPick = t.closest('.chip').dataset.reason; renderPanel();
+  } else if (t.id === 'cancelReject') {
+    S.decision = null; S.rejectPick = null; renderPanel();
+  } else if (t.id === 'confirmReject') {
+    S.human++;
+    audit('开发负责人（人工）', `驳回方案 v1：${S.rejectPick}`, 'bad');
+    S.rejected = true; S.decision = null;
+    setState('LOCATED');
+    audit('方案 Agent', '按驳回意见重新分析影响范围');
+    setTimeout(() => { setState('PENDING_APPROVAL'); audit('方案 Agent', '提交方案 v2，等待审批'); renderPanel(); }, 500);
+    renderPanel();
+  } else if (t.id === 'acceptBtn') {
+    S.accepted = true; S.human++;
+    audit('门店店长（人工）', '逐条确认验收标准，验收通过', 'human');
+    setState('DONE');
+    audit('编排 Worker', `释放任务锁 ${S.lock}，归档工作区`);
+    S.lock = null; S.auto = false;
+    renderAll();
+  }
+});
+$('panel').addEventListener('change', e => {
+  if (e.target.matches('.checklist input')) {
+    S.checks[Number(e.target.dataset.i)] = e.target.checked;
+    const btn = $('acceptBtn');
+    if (btn) btn.disabled = !sc().task.acceptance.every((_, i) => S.checks[i]);
+  }
+});
+
+/* ---------------- 并发与中断恢复 ---------------- */
+const CONC_TASKS = [
+  { id: 'A', title: '任务 A：2 号机小票无法打印', module: 'printer-service' },
+  { id: 'B', title: '任务 B：小票模板增加门店电话', module: 'printer-service' },
+  { id: 'C', title: '任务 C：会员积分未到账', module: 'member-service' }
+];
+let C;
+function concFresh() {
+  return { run: (C ? C.run : 0) + 1, tasks: Object.fromEntries(CONC_TASKS.map(t => [t.id, { st: '待提交', cls: '', pct: 0, ws: '—' }])), locks: { 'printer-service': null, 'member-service': null, 'order-service': null }, log: [], busy: false };
+}
+function concRender() {
+  $('concTasks').innerHTML = CONC_TASKS.map(t => {
+    const s = C.tasks[t.id];
+    return `<div class="tcard"><div class="row"><span class="ttl">${esc(t.title)}</span><span class="pill ${s.cls}">${esc(s.st)}</span></div>
+      <div class="meta">模块 <span class="mono">${esc(t.module)}</span> · 工作区 <span class="mono">${esc(s.ws)}</span></div>
+      <div class="bar"><i style="width:${s.pct}%"></i></div></div>`;
+  }).join('');
+  $('concLocks').innerHTML = Object.entries(C.locks).map(([m, h]) =>
+    `<div class="lk"><span class="mono">${esc(m)}</span><span class="pill ${h ? 'run' : ''}">${h ? '任务 ' + esc(h) + ' 持有' : '空闲'}</span></div>`).join('');
+  $('concLog').innerHTML = C.log.map(l => `<li class="${l.c || ''}">${esc(l.t)}</li>`).join('');
+  const ol = $('concLog'); ol.scrollTop = ol.scrollHeight;
+  $('concBtn').disabled = C.busy; $('crashBtn').disabled = C.busy;
+}
+function T(id, st, cls, pct, ws) { const s = C.tasks[id]; s.st = st; s.cls = cls; if (pct != null) s.pct = pct; if (ws) s.ws = ws; }
+function L(t, c) { C.log.push({ t, c }); }
+async function concScript(steps) {
+  const run = C.run; C.busy = true; concRender();
+  for (const [ms, fn] of steps) {
+    await sleep(ms);
+    if (run !== C.run) return;
+    fn(); concRender();
+  }
+  C.busy = false; concRender();
+}
+$('concBtn').addEventListener('click', () => {
+  C = concFresh(); concRender();
+  concScript([
+    [200, () => { L('收到 3 个任务，进入调度队列'); ['A', 'B', 'C'].forEach(id => T(id, '排队', 'wait', 5)); }],
+    [700, () => { C.locks['printer-service'] = 'A'; T('A', '修改中', 'run', 20, 'ws/task-A'); L('任务 A 获得锁 printer-service，创建工作区 ws/task-A', 'ok'); }],
+    [700, () => { T('B', '等待锁', 'wait', 5); L('任务 B 申请锁 printer-service 失败：已被任务 A 持有，进入等待', 'warn'); }],
+    [700, () => { C.locks['member-service'] = 'C'; T('C', '修改中', 'run', 25, 'ws/task-C'); L('任务 C 获得锁 member-service，与任务 A 并行执行', 'ok'); }],
+    [900, () => { T('A', '验证中', 'run', 65); T('C', '验证中', 'run', 60); L('任务 A、C 进入验证'); }],
+    [1000, () => { T('A', '待验收', 'ok', 100); C.locks['printer-service'] = null; L('任务 A 验证通过，释放锁 printer-service', 'ok'); }],
+    [700, () => { C.locks['printer-service'] = 'B'; T('B', '修改中', 'run', 25, 'ws/task-B'); L('任务 B 获得锁，基于任务 A 合入后的代码开始修改，避免互相覆盖', 'ok'); }],
+    [800, () => { T('C', '待验收', 'ok', 100); C.locks['member-service'] = null; L('任务 C 验证通过，释放锁 member-service', 'ok'); }],
+    [900, () => { T('B', '验证中', 'run', 70); }],
+    [900, () => { T('B', '待验收', 'ok', 100); C.locks['printer-service'] = null; L('任务 B 验证通过，释放锁。三个任务无冲突完成', 'ok'); }]
+  ]);
+});
+$('crashBtn').addEventListener('click', () => {
+  C = concFresh(); concRender();
+  concScript([
+    [200, () => { C.locks['printer-service'] = 'A'; T('A', '修改中', 'run', 30, 'ws/task-A'); L('任务 A 获得锁 printer-service，开始修改'); }],
+    [800, () => { T('A', '验证中', 'run', 60); L('状态机记录检查点：MODIFYING 完成，进入 VERIFYING（已跑 2/4 个用例）'); }],
+    [900, () => { T('A', '中断', 'bad', 60); L('验证 Worker 进程异常退出', 'bad'); }],
+    [900, () => { L('锁带租约：Worker 心跳超时，锁标记为“待恢复”，其他任务仍不能抢占', 'warn'); }],
+    [900, () => { T('A', '恢复中', 'wait', 60); L('新 Worker 启动，读取状态机：上次停在 VERIFYING，第 3 个用例'); }],
+    [800, () => { T('A', '验证中', 'run', 80); L('跳过已完成的修改和前 2 个用例，从断点继续', 'ok'); }],
+    [900, () => { T('A', '待验收', 'ok', 100); C.locks['printer-service'] = null; L('验证通过，释放锁。中断没有造成重复修改', 'ok'); }]
+  ]);
+});
+$('concReset').addEventListener('click', () => { C = concFresh(); concRender(); });
+
+/* ---------------- 主题 ---------------- */
+$('themeBtn').addEventListener('click', () => {
+  const root = document.documentElement;
+  const dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+  root.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('theme', root.dataset.theme); } catch (e) {}
+});
+try { const t = localStorage.getItem('theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+
+/* ---------------- 启动 ---------------- */
+C = concFresh(); concRender();
+start('print');
+})();
+</script>
+</body>
+</html>
